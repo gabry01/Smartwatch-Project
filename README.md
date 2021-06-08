@@ -1,2 +1,2 @@
 # Smartwatch-Project
-Progetto creato per il corso "Fondamenti di dati"
+Progetto creato da Tam Gabriele per il corso "Fondamenti di dati"
