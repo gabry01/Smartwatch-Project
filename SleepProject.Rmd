@@ -1,0 +1,754 @@
+---
+title: "Sleep Project"
+author: "Tam Gabriele"
+date: "20/5/2021"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache = TRUE, message = FALSE, warning = FALSE)
+```
+
+# Smartwatch
+
+> Uno **smartwatch**, **smart watch** o **orologio intelligente**, è un orologio con altre funzionalità oltre il semplice cronometraggio.
+>
+> Wikipedia.org
+
+L'ultimo decennio ha visto il mercato degli **smartwatch** crescere in maniera repentina: il basso costo di questi dispositivi e le loro molteplici funzionalità li hanno resi prodotti sempre **più voluti** dagli amanti della tecnologia e non.
+
+La domanda che sorge spontanea però è:
+
+> Queste funzionalità aggiuntive hanno davvero un'utilità o questi oggetti sono dei semplici gadget da tenere al polso?
+
+Con il mio **progetto** ho cercato di rispondere alla domanda appena fatta prendendo come **caso esemplificativo** un'attività monitorata da questi strumenti: il **sonno**.
+
+Nello specifico, ho provato a capire se effettivamente [attraverso questi oggetti possiamo avere dei benefici tangibili]{.ul} (come il miglioramento della qualità del sonno) [nel nostro quotidiano]{.ul}.
+
+Ho strutturato il progetto attraverso le seguenti domande:
+
+-   *Quanto è affidabile la qualità del sonno misurata dagli smartwatch?*
+
+-   *Cosa influenza di più la qualità del sonno?*
+
+-   *Cosa è meglio fare prima di addormentarsi?*
+
+-   *Lo sport ha un impatto sul sonno?*
+
+-   *Qual è la dormita ideale (per me)?*
+
+Poi, utilizzando i risultati trovati, ho cercato di ripondere alla domanda principe fatta prima:
+
+-   *Gli smartwatch hanno davvero un'utilità o sono dei semplici gadget da tenere al polso?*
+
+Mi sono basato sui **dati raccolti dal mio smartwatch** (uno *Amazfit GTS*) e dalla sua app (*Zepp*) durante l'**ultimo anno** (da maggio 2020 a maggio 2021).
+
+## Set up dei dati
+
+**Importo** le librerie che userò durante l'intero progetto:
+
+```{r message=FALSE}
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(modelr)
+library(hrbrthemes)
+library(tidyr)
+library(viridis)
+library(ggridges)
+```
+
+**Importo** i dataset esportati dallo smartwatch:
+
+```{r message=FALSE}
+sleep = read_csv2("sleepData2.csv" )
+sport = read_csv2("sportData2.csv")
+```
+
+**Sistemo** i dati ottenuti:
+
+```{r}
+
+# Sistemo il dataset sleep 
+
+sleepDS = sleep %>%
+  
+  # elimino alcune variabili 
+  select(-lastSyncTime , -start , -stop)%>%
+  
+  # separo la variabile "startSleep" in 2 variabili : "hStart"(ora inizio sonno) e "mStart" (minuto inizio sonno)
+  separate("startSleep", into = c("hStart","mStart"),sep = 2) %>%
+  
+  # separo la variabile "stopSleep" in 2 variabili : "hStop"(ora risveglio) e "mStop" (minuto risveglio)
+  separate("stopSleep",into = c("hStop","mStop") , sep = 2) %>%
+  
+  # separo la variabile "date" in 3 variabili : "year","month" e "day"
+  separate("date" , into = c("year","month","day"),sep = "/") %>%
+  
+  # converto tutti i valori in tipo numerico
+  mutate_all(as.numeric)%>%
+  
+  # creo una nuova variabile "mtotSleep" (minuti totali dormiti)
+  mutate (mtotSleep = ifelse(hStart>18 , (23 - hStart + hStop)*60 + mStop + 60 - mStart , (hStop -1- hStart ) *60 + mStop + 60 - mStart))%>%
+  
+  # creo una nuova variabile "htotSleep" (ore totali dormite)
+  mutate (htotSleep = mtotSleep / 60) %>%
+  
+  # elimino le righe per cui la variabile humorAtMorning è NA
+  filter(!is.na(humorAtMorning)) 
+
+```
+
+```{r}
+
+# sport  
+
+sportDS = sport %>%
+  
+  # elimino alcune variabili 
+  select(-startTime , -Column1)%>%
+  
+  # separo la variabile "startTimeSport" in 2 variabili : "hStartTimeSport","month" (ora inizio attività) e "mStartTimeSport" (minut inizio attività)
+  separate("startTimeSport" , into = c("hStartTimeSport","mStartTimeSport") , sep = 2)
+
+```
+
+## Precisione della qualità del sonno
+
+Ogni mattina lo smartwatch fornisce un feedback in **centesimi** chiamato **qualità del sonno**: questa variabile ("*qualitySleep*" nel nostro dataset), sfruttando gli altri parametri misurati, indica com'è stata la dormita fatta.
+
+Oltre a questo parametro, è possibile aggiungere una **nostra valutazione**, tramie **l'app** connessa, per **giudicare l'umore e lo stato del risveglio**. Nel nostro dataset questo feedback è raccolto sotto la variabile "*humorAtMorning*" e varia da **1 a 3**, dove:
+
+-   **1** corrisponde a "*mi sento pieno di energie*" (**sonno fantastico)**;
+
+-   **2** corrisponde a "*mi sento stanco*" (**sonno pessimo**);
+
+-   **3** corrisponde a "*mi sento bene*" (**sonno nella norma/normale**).
+
+> In questa parte cercherò di verificare che **corrispondenza** c'è [tra questi due feedback]{.ul} ("*qualitySleep*" e "*humorAtMorning*") **classificado poi** il **voto** sulla qualità del sonno offerto dallo **smartwatch** nelle **tre** **categorie** corrispondenti alle valutazioni fatte dall'utente (sonno fantastico, pessimo o nella norma).
+
+```{r}
+
+# creo un nuovo dataset che userò in questa parte
+
+sleepConfronto = sleepDS %>%
+  
+  # seleziono solo alcune variabili di mio interesse
+  select(qualitySleep,humorAtMorning)
+  
+# plotto i dati
+
+ggplot(data = sleepConfronto) +
+  geom_point(mapping = aes(y = qualitySleep , x = humorAtMorning), alpha = 0.05)
+
+# creo un ulteriore dataset a cui cambio alcuni valori 
+
+sleepConfronto2 = sleepConfronto %>% 
+  
+  # sostituisco il valore 1 con "fantastic" (sonno fantastico)
+  mutate(humorAtMorning = replace(humorAtMorning, humorAtMorning == 1, "fantastic" ))%>%
+  
+  # sostituisco il valore 2 con "bad" (sonno cattivo)
+  mutate(humorAtMorning = replace(humorAtMorning, humorAtMorning == 2, "bad" ))%>%
+  
+  # sostituisco il valore 3 con "fantastic" (sonno normale)
+  mutate(humorAtMorning = replace(humorAtMorning, humorAtMorning == 3, "normal" ))%>%
+  
+  # elimino le osservazioni che hanno NA come valore della variabile "humorAtMorning"
+  filter(!is.na(humorAtMorning))
+
+
+# plotto il nuovo dataset utilizzando un boxplot e poi un grafico a violino
+
+ggplot(data = sleepConfronto2) +
+  geom_boxplot(mapping = aes(x = humorAtMorning , y = qualitySleep))
+
+ggplot(data=sleepConfronto2, aes(x=humorAtMorning, y=qualitySleep, fill=humorAtMorning)) + 
+  geom_violin()
+
+```
+
+Osservando il **bloxpot** realizzato, notiamo come per ogni valore di "*humorAtMorning*" che corrisponde al feedback lasciato al mattino, corrispondono **fasce** di "*qualitySleep*" **ben precise**.
+
+E' possibile capire attorno a quali valori di "*qualitySleep*" si aggirano le valutazioni date dall'utente **calcolando la media e la mediana** per le 3 categorie:
+
+```{r}
+
+# creo nuove variabili filtrando i dati contenuti nel precedente dataset
+
+badSleep = filter(sleepConfronto2 , humorAtMorning == "bad" )
+normalSleep =  filter(sleepConfronto2 , humorAtMorning == "normal" )
+fantasticSleep = filter(sleepConfronto2 , humorAtMorning == "fantastic" )
+
+# per ogni variabile calcolo la media e la mediano (e le confronto con il grafico creato prima)
+
+# Cattivo sonno 
+
+mean(badSleep$qualitySleep)
+median(badSleep$qualitySleep)
+
+# Sonno normale
+
+mean(normalSleep$qualitySleep)
+median(normalSleep$qualitySleep)
+
+
+# Sonno fantastico
+
+mean(fantasticSleep$qualitySleep)
+median(fantasticSleep$qualitySleep)
+
+
+```
+
+> In definitiva, si nota come le due variabili ("*qualitySleep*" e "*humorAtMorning*") sono **collegate**: entrambe danno un giudizio sulla qualità del sonno e combinandole possiamo **delineare 3 fasce** con cui **è possibile valutare al meglio il riposo avuto**.
+
+## Cosa influenza di più la qualità del sonno?
+
+Dopo aver determinato come valutare la qualità del sonno una domanda che sorge spontanea è:
+
+*"Da cosa è influenzata la qualità del sonno?"*
+
+oppure in altri termini:
+
+*"Quali sono i parametri che hanno un impatto maggiore sul sonno?"*
+
+> In questa parte cercherò di [determinare quali sono i fattori che portano ad avere un riposo migliore]{.ul} in termini della variabile "*qualitySleep*".
+
+Per farlo è utile prima comprendere meglio quali sono gli altri **parametri raccolti dallo smartwatch**:
+
+-   *deepSleepTime* -\> minuti di **sonno profondo** (questa è la fase in cui c'è un [riposo effettivo]{.ul}, dove il corpo e il cervello recuperano energie);
+
+-   *shallowSleepTime* -\> minuti di **sonno leggero e REM** (in questa fase il riposo effettivo è più [lieve]{.ul} ed è il momento in cui avvengono i [sogni]{.ul});
+
+-   *wakeTime* -\> minuti passati **svegli**;
+
+-   *htotSleep* -\> ore **totali di sonno**.
+
+Per prima cosa, **sistemo meglio i dati** del dataset originario:
+
+```{r}
+
+# creo un nuovo dataset che userò in questa parte 
+
+sleepCause = sleepDS %>%
+  
+  # seleziono solo alcune colonne
+  select(deepSleepTime,shallowSleepTime,wakeTime,qualitySleep,humorAtMorning,mtotSleep,htotSleep,IDday) %>% 
+  
+  # sostituisco il valore 1 con "fantastic" (sonno fantastico)
+  mutate(humorAtMorning = replace(humorAtMorning, humorAtMorning == 1, "fantastic" )) %>%
+  
+  # sostituisco il valore 2 con "bad" (sonno cattivo)
+  mutate(humorAtMorning = replace(humorAtMorning, humorAtMorning == 2, "bad" )) %>%
+  
+  # sostituisco il valore 3 con "fantastic" (sonno normale)
+  mutate(humorAtMorning = replace(humorAtMorning, humorAtMorning == 3, "normal" )) %>%
+  
+  # elimino le osservazioni che hanno NA come valore della variabile "humorAtMorning"
+  filter(!is.na(qualitySleep))
+  
+
+```
+
+**Analizzo ora ogni parametro** citato prima e lo **confronto con la qualità del sonno**:
+
+```{r}
+
+# wake time
+
+# visualizzo la relazione tra le variabili "wakeTime" e "qualitySleep"
+
+ggplot(data = sleepCause , mapping = aes(y = wakeTime , x = qualitySleep)) +
+  geom_smooth() +
+  geom_point(alpha = 0.8)+
+  coord_cartesian(xlim = c(60,100),ylim = c(5,75))
+
+# tolgo eventuali valori NA nella variabile "wakeTime"
+
+sleepCause2 = sleepCause%>%
+  filter(!is.na(wakeTime))
+
+# calcolo il modello e la correlazione tra le due variabili
+
+mod = lm(qualitySleep ~ wakeTime, data = sleepCause2)
+cor(sleepCause2$qualitySleep, sleepCause2$wakeTime)
+
+```
+
+Si nota come lo **scatterplot realizzato appare molto dispersivo** poichè i valori misurati non seguono un andamento tipico della regressione lineare: **tra le due variabili c'è una bassa correlazione (del -0.4)**.
+
+```{r}
+
+# shallow sleep (sonno leggero)
+
+# visualizzo la relazione tra le variabili "wakeTime" e "shallowSleepTime"
+
+ggplot(data = sleepCause , mapping = aes(y = qualitySleep , x = shallowSleepTime)) +
+  geom_point() +
+  geom_smooth() +
+  coord_cartesian(xlim = c(200,600),ylim = c(60,100))
+
+# noto che ci può essere una correlazione quando c'è poco sonno leggero
+
+sleepCause2 = sleepCause%>%
+  
+  #seleziono solo le osservazioni con la variabile "shallowSleepTime"< 260 (-> minuit di sonno leggero < 260)
+  filter(shallowSleepTime < 260)%>%
+  
+  # tolgo eventuali valori NA nella variabile "shallowSleepTime"
+  filter(!is.na(shallowSleepTime))
+
+# calcolo il modello e la correlazione tra le due variabili
+
+mod = lm(qualitySleep ~ shallowSleepTime, data = sleepCause2)
+cor(sleepCause2$qualitySleep, sleepCause2$shallowSleepTime)
+
+```
+
+Dai risultati emerge come **per valori di sonno leggero bassi** (\< 260 minuti) la **qualità del sonno cala a sua volta**: queste due variabili (in questa zona) **sono legate da una correlazione del 0.78** .
+
+Questa dipendenza è causata dal fatto che [durante il sonno leggero la persona recupera le energie usate durante la giornata]{.ul}: [minore sarà la sua durata e minore saranno le energie recuperate e come conseguenza si avrà una peggiore qualità del sonno effettiva]{.ul}.
+
+```{r}
+
+# Deep Sleep (sonno profondo)
+
+# visualizzo la relazione tra le variabili "deepSleepTime" e "qualitySleep"
+
+ggplot(data = sleepCause , mapping = aes(y = qualitySleep , x = deepSleepTime)) +
+  geom_point() +
+  geom_smooth() +
+  coord_cartesian(xlim = c(0,250) , ylim = c(60,100))
+
+# noto che ci può essere una correlazione quando c'è poco sonno profondo
+
+sleepCause2 = sleepCause%>%
+  
+  #seleziono solo le osservazioni con la variabile "deepSleepTime"< 90 (-> minuiti di sonno profondo < 90)
+  filter(deepSleepTime < 90)%>%
+  
+  # tolgo eventuali valori NA nella variabile "deepSleepTime"
+  filter(!is.na(deepSleepTime))
+
+# calcolo il modello e la correlazione tra le due variabili
+
+mod = lm(qualitySleep ~ deepSleepTime, data = sleepCause2)
+cor(sleepCause2$qualitySleep, sleepCause2$deepSleepTime)
+
+```
+
+Analogamente a prima, si nota come **per bassi valori di sonno profondo** (\< 90 minuti) **la qualità del sonno cala**. Queste due **variabili sono dipendenti** e tra di essi c'è una **correlazione del 0.70** .
+
+Questa dipendenza è causata dal fatto che [durante il sonno profondo la persona recupera le energie usate durante la giornata]{.ul}: [minore sarà la sua durata e minore saranno le energie recuperate e come conseguenza si avrà una peggiore qualità del sonno effettiva.]{.ul}
+
+```{r}
+
+# Total Sleep Time (ore di sonno totale)
+
+ggplot(data = sleepCause , mapping = aes(y = qualitySleep , x = htotSleep)) +
+  geom_point() +
+  geom_smooth() +
+  coord_cartesian(ylim = c(60,100) , xlim = c(0,12))
+
+# noto che ci può essere una correlazione quando ho dormito molto (tra le 10 e le 13 ore)
+
+sleepCause2 = sleepCause %>%
+  filter(htotSleep > 10.5)%>%
+  filter(htotSleep < 13)%>%
+  filter(!is.na(htotSleep))
+
+# calcolo il modello e la correlazione tra le due variabili
+
+mod = lm(qualitySleep ~ htotSleep, data = sleepCause2)
+cor(sleepCause2$qualitySleep, sleepCause2$htotSleep)
+
+# visualizzo nuovamente la situazione per confermare la relazione
+
+ggplot(data = sleepCause2 , mapping = aes(y = qualitySleep , x = htotSleep)) +
+  geom_point() +
+  geom_smooth() +
+  coord_cartesian(ylim = c(70,100))
+
+# noto che ci può essere anche una correlazione quando ho dormito poco (meno di 8 ore)
+
+sleepCause2 = sleepCause %>%
+  filter(htotSleep < 8)%>%
+  filter(htotSleep > 0)%>%
+  filter(!is.na(htotSleep))
+
+# calcolo il modello e la correlazione tra le due variabili
+
+mod = lm(qualitySleep ~ htotSleep, data = sleepCause2)
+cor(sleepCause2$qualitySleep, sleepCause2$htotSleep)
+
+# visualizzo nuovamente la situazione per confermare la relazione
+
+ggplot(data = sleepCause2 , mapping = aes(y = qualitySleep , x = htotSleep)) +
+  geom_point() +
+  geom_smooth() 
+
+```
+
+Infine, **confrontando le ore dormite con la qualità del sonno risulta che per bassi (\< 8 ore) e alti (\> 10.30 ore) valori di "htotSleep" la valutazione di "qualitySleep" cala**.
+
+Tali **variabili in queste condizioni appaiono dipendenti e la correlazione è del -0.93 per il poco sonno e del 0.78 per il tanto sonno**.
+
+Questa relazione si può spiegare dicendo che: [ognuno di noi ha una quantità di sonno ben definita e consolidata nel tempo che permette ad ogni persona di essere pronta per la nuova giornata]{.ul}.
+
+Se però la quantità [non è raggiunta o è superata di molto, al risveglio potremmo avere delle ripercussioni]{.ul}: ad esempio potremmo trovarci **stanchi** poichè non abbiamo **avuto abbastanza tempo per recuperare le energie** oppure **scombussolati** perchè **abbiamo riposato troppo e abbiamo spezzato la classica routine** che ci permetteva di svegliarci completamente riposati.
+
+> In definitiva, posso concludere che (almeno per me) **per avere una qualità del sonno migliore dovrei avere un maggiore sonno profondo e sonno leggero** e dormire tra le **8 e le 10 ore a notte**.
+
+## Cosa è meglio fare prima di addormentarsi?
+
+> Nel corso degli anni, ho notato come **alcune abitudini e certi comportamenti influenzano il mio sonno**: durante gli ultimi mesi **ho sfruttato l'applicazione associata allo smartwatch per tener traccia di ciò che ho fatto nelle ore antecendenti al riposo**.
+
+Esportando i dati raccolti troviamo alla variabile "*preSleep*" le abitudini che ho avuto prima di coricarmi, queste sono rappresentate da numeri nel seguente modo:
+
+-   **1** -\> *Ho giocato con i videogame prima di andare a dormire;*
+
+-   **2** -\> *Ho fatto un allenamento pesante poco prima di addormentarmi;*
+
+-   **3** -\> *Ho mangiato pesante a cena;*
+
+-   **4** -\> *Ho fatto una doccia o un bagno caldo prima di riposare;*
+
+-   **5** -\> *Ho letto un libro prima di addormentarmi;*
+
+-   **6** -\> *Ho bevuto alcol durante la sera.*
+
+> In questa parte del progetto voglio [capire se c'è un'effettiva correlazione tra queste abitudini e la qualità del sonno]{.ul} e se effettivamente alcune di loro **migliorano o peggiornano il ripos**o.
+
+```{r}
+
+# creo dei nuovi dataset (uno per ogni abitudine) partendo da sleepDS 
+
+# seleziono solo le osservazioni che contengono nella variabile "preSleep" in numero 1 (-> giocato prima di andare a dormire)
+
+sleepGame = sleepDS%>%
+  filter(grepl(1,preSleep))%>%
+  mutate(preSleep = "Gaming")
+
+# seleziono solo le osservazioni che contengono nella variabile "preSleep" in numero 2 (-> ho fatto un allenamento intenso nelle ore prima di addormentarmi)
+
+sleepLateW = sleepDS%>%
+  filter(grepl(2,preSleep))%>%
+  mutate(preSleep = "Late Workout")
+
+# seleziono solo le osservazioni che contengono nella variabile "preSleep" in numero 3 (-> ho mangiato pesante prima di andare a dormire)
+
+sleepFood = sleepDS%>%
+  filter(grepl(3,preSleep))%>%
+  mutate(preSleep = "Food")
+
+# seleziono solo le osservazioni che contengono nella variabile "preSleep" in numero 4 (-> ho fatto una doccia prima di andare a dormire)
+
+sleepShower = sleepDS%>%
+  filter(grepl(4,preSleep))%>%
+  mutate(preSleep = "Shower")
+
+# seleziono solo le osservazioni che contengono nella variabile "preSleep" in numero 5 (-> ho letto un libro prima di andare a dormire)
+
+sleepBook = sleepDS%>%
+  filter(grepl(5,preSleep))%>%
+  mutate(preSleep = "Book")
+
+# seleziono solo le osservazioni che contengono nella variabile "preSleep" in numero 6 (-> ho bevuto alchol prima di andare a dormire)
+
+sleepAlchol = sleepDS%>%
+  filter(grepl(6,preSleep))%>%
+  mutate(preSleep = "Alchol")
+
+```
+
+Dopo aver sistemato i dati raccolti e separati appositamente, faccio un **join** creando un nuovo dataset contenete tutte le informazioni che mi servono per analizzare le considerazioni fatte all'inizio:
+
+```{r message=FALSE}
+
+# Faccio un join dei dataset creati prima
+
+sleepH = sleepGame%>%
+  full_join(sleepLateW)%>%
+  full_join(sleepFood)%>%
+  full_join(sleepShower)%>%
+  full_join(sleepAlchol)%>%
+  full_join(sleepBook)%>%
+  mutate(preSleep = as.character(preSleep))
+
+```
+
+Al fine di visualizzare al meglio di dati sfrutto **ggplot** pe**r rappresentare ogni abitudine** e **confrontarla** con la **qualità del sonno**:
+
+```{r}
+
+# plotto tutto e visualizzo come le abitudini influiscono sulla variabile "qualitySleep"
+
+ggplot(data=sleepH, aes(x=qualitySleep, group=preSleep, fill=preSleep)) +
+    geom_density(adjust=1.5) +
+    facet_wrap(~preSleep) +
+    theme(
+      legend.position = "none",
+      panel.spacing = unit(0.5, "lines"),
+      axis.ticks.x=element_blank()
+    ) + coord_cartesian(xlim = c(75,95))
+
+```
+
+> Si può notare da questi grafici che [ci sono dei comportamenti che migliorano notevolmente la qualità del sonno]{.ul} (come la **lettura**) [e altri che la peggiorano]{.ul} (come **l'alcol** e il **videogiocare**).
+
+Per verificare ulteriormente le condiderazioni appena fatte è possibile **calcolare la media della qualità del sonno e l'umore al risveglio in due casi esemplificativi** :
+
+```{r}
+
+# calcolo le medie della qualità del sonno e del umore al risveglio di quando ho letto un libro prima di dormire
+
+qualityBook = mean(sleepBook$qualitySleep, na.rm= TRUE)
+HumorBook = mean(sleepBook$humorAtMorning, na.rm= TRUE)
+
+qualityBook
+HumorBook
+  
+```
+
+Come ci aspettavamo la **qualità del sonno** di quando ho letto un **libro** prima di addormentarmi è molto alta: **92.2** (su 100).
+
+*Questo conferma sicuramente la condiderazione che abbiamo fatto poco fa: leggere prima di coricarsi ha un impatto positivo sul riposo*.
+
+```{r}
+
+# calcolo le medie della qualità del sonno e del umore al risveglio di quando ho giocato prima di dormire
+
+qualityGame = mean(sleepGame$qualitySleep, na.rm= TRUE)
+HumorGame = mean(sleepGame$humorAtMorning, na.rm= TRUE)
+
+qualityGame
+HumorGame
+
+```
+
+Di contro invece, notiamo come la media della qualità del sonno di quando ho **videogiocato** la sera prima è molto **bassa**: **86 (su 100)** .
+
+*Ciò conferma il fatto che avere questa abitudine prima di dormire diminuisce notevolmente il riposo effettivo.*
+
+> Concludendo, [per avere una qualità del sonno maggiore]{.ul} (e quindi un effettivo miglior riposo) [è più indicato (nel mio caso) avere alcune abitudini]{.ul} (come la lettura) [mentre e sconsigliato averne delle altre]{.ul} (come il video giocare).
+
+## Come l'attività fisica influenza il sonno?
+
+Un'altra caratteristica del mio smartwatch è la **possibilità di registrare l'esercizio fisico fatto durante la giornata**.
+
+> Il mio scopo è di [verificare se c'è un'effettiva correlazione tra queste due attività]{.ul}: voglio confrontare i parametri registrati durante le varie sessioni di allenamento con i dati del sonno già spiegati nelle parti precedenti.
+
+Esportando i dati raccolti dallo smartwatch troviamo i seguenti parametri che valutano le varie attività fatte:
+
+-   *avgBpm* -\> **battito cardiaco medio** avuto durante l'allenamento;
+
+-   *maxBpm* -\> **picco massimo di Bpm** raggiunto durante l'allenamento;
+
+-   *calories* -\> numero di **calorie bruciate** durante la sessione;
+
+-   *sportTime* -\> **tempo di attività totale** (in secondi);
+
+-   *anaerobicTime* -\> tempo in minuti di **attività anaerobica**.
+
+Per prima cosa **sistemo** il dataset :
+
+```{r message=FALSE}
+
+# poichè IDday è l'identificativo della giornata faccio in modo di utilizzare questo parametro per unire i due dataset (sonno e attività fisica)
+
+# poichè voglio vedere come l'attività del giorno prima influenza il sonno pongo IDday = IDday + 1 nel dataset dello sport
+
+mutate(sportDS , IDday= IDday +1) 
+
+# creo un nuovo dataset che userò in questa parte
+
+sportSleep = left_join(sportDS,sleepDS)
+
+sportSleep = sportSleep%>%
+  
+  # seleziono solo alcune variabili
+  select(-mStop,-hStop,-mStart,-hStart,-year,-month,-day,-date)%>%
+  
+  # unisco le variabili "hStartTimeSport" e "mStartTimeSport" in "StartTimeSport" (ora e minuti in cui ho iniziato a fare attività fisica)
+  unite("StartTimeSport" , hStartTimeSport , mStartTimeSport , sep = "")%>%
+  
+  # sostituisco il valore 1 con "fantastic" (sonno fantaastico)
+  mutate(humorAtMorning = replace(humorAtMorning, humorAtMorning == 1, "fantastic" ))%>%
+  
+  # sostituisco il valore 2 con "bad" (cattivo sonno)
+  mutate(humorAtMorning = replace(humorAtMorning, humorAtMorning == 2, "bad" ))%>%
+  
+  # sostituisco il valore 3 con "normal" (sonno normale)
+  mutate(humorAtMorning = replace(humorAtMorning, humorAtMorning == 3, "normal" )) 
+
+  
+```
+
+Ora provo a **verificare se c'è un effettiva correlazione tra le variabili raccolte durante l'attività fisica fatta e la qualità del sonno**:
+
+```{r}
+
+# Visualizzo la relazione tra le variabili "qualitySleep" e "avgBpm" (media del battito cardiaco durante l'attività fisica)
+
+ggplot(data = sportSleep , mapping = aes(y = qualitySleep , x = avgBpm)) +
+  geom_point() +
+  geom_smooth() 
+
+```
+
+```{r}
+
+# Visualizzo la relazione tra le variabili "qualitySleep" e "calories" (calorie bruciate durante l'attività fisica)
+
+ggplot(data = sportSleep , mapping = aes(y = qualitySleep , x = calories)) +
+  geom_point() +
+  geom_smooth()  
+
+```
+
+```{r}
+
+# Visualizzo la relazione tra le variabili "qualitySleep" e "sportTime" (quanto è durata l'attività fisica)
+
+ggplot(data = sportSleep, mapping = aes(y = qualitySleep , x = sportTime)) +
+  geom_point() +
+  geom_smooth() 
+
+```
+
+```{r}
+
+# Visualizzo la relazione tra le variabili "qualitySleep" e "maxBpm" (battito cardiaco massimo raggiunto durante l'attività fisica)
+
+ggplot(data = sportSleep , mapping = aes(y = qualitySleep , x = maxBpm)) +
+  geom_point() +
+  geom_smooth()  
+
+```
+
+Si nota come la correlazione tra le varie variabili e la qualità del sonno **non è molto significativa**: [in generale l'attività fisica ha un effetto neutro (almeno nel mio caso) sul riposo effettivo]{.ul}.
+
+> Analizzando meglio i grafici fatti nella parte precedente, si può ipotizzare che **gli allenamenti pesanti fatti a ridosso del sonno hanno un impatto negativo su quest'ultimo**.
+
+Per verificare queste considerazioni **seleziono solo gli allenamenti fatti dopo le 20:00**:
+
+```{r}
+
+# filtro le osservazioni e tengo solo quelle in cui mi sono iniziato ad allenate tradi (dopo le 20:00)
+
+lateSport = sportSleep%>%
+  filter(StartTimeSport > 2000)
+```
+
+Con i nuovi dati provo a rifare l'analisi di prima:
+
+```{r}
+
+# Visualizzo se c'è una  relazione tra le variabili "qualitySleep" e "avgBpm" quando mi sono allenato tardi
+
+ggplot(data = lateSport , mapping = aes(y = avgBpm  , x = qualitySleep )) +
+  geom_point() +
+  geom_smooth()+ 
+  coord_cartesian(xlim = c(75,95))
+
+# calcolo il modello e la correlazione tra le due variabili
+
+mod = lm(avgBpm ~ qualitySleep, data = lateSport)
+cor(lateSport$avgBpm, lateSport$qualitySleep)
+
+```
+
+Si nota come ora **la curva è molto più lineare e la correlazione tra le due variabili è molto elevata: 0.92** .
+
+*In particolare all'aumentare del Bpm medi (maggiore intensità dell'allenamento) diminuisce la qualità del sonno.*
+
+```{r}
+
+# Visualizzo se c'è una  relazione tra le variabili "qualitySleep" e "anaerobicTime" (tempo in anaerobico) quando mi sono allenato tardi
+
+ggplot(data = lateSport , mapping = aes(y = anaerobicTime , x = qualitySleep)) +
+  geom_point() +
+  geom_smooth()+
+  coord_cartesian(xlim = c(75,95))
+
+# calcolo il modello e la correlazione tra le due variabili
+
+mod = lm(anaerobicTime ~ qualitySleep, data = lateSport)
+cor(lateSport$anaerobicTime, lateSport$qualitySleep)
+
+```
+
+Come nel caso di prima si osserva una **curva quasi lineare**: **ciò mi fa concludere che le due variabili sono linearmente correlate (0.96**).
+
+*In particolare, all'aumentare del tempo in anaerobico (maggiore stress fisico e intensità) la qualità del sonno diminuisce.*
+
+In questo caso la correlazione è negativa.
+
+> In definitiva, [se l'attività fisica viene fatta tardi (dopo le 20:00) e in particolar modo se questa è intesa]{.ul} (alti Bpm medi e un tempo in anaerobico alto[) l'impatto sul sonno è elevato]{.ul}: si può notare che all'aumentare di entrambi (causato da una maggiore intensità dell'attività fatta) **diminuisce la qualità del sonno effettiva**.
+
+## Qual è la dormita ideale?
+
+Riunendo tutte le considerazioni fatte fino ad ora**, è possibile delineare un profilo del [mio]{.ul} sonno ideale** :
+
+```{r}
+
+# seleziono solo le osservazioni con una qualità del sonno alta (> 91)
+
+bestSleep = sleepDS%>%
+  filter(qualitySleep > 91)
+
+# calcolo la media dei parametri del sonno
+
+bestDeepSleep = mean(bestSleep$deepSleepTime, na.rm= TRUE)
+bestWakeTime = mean(bestSleep$wakeTime, na.rm= TRUE)
+bestShallowSleepTime = mean(bestSleep$shallowSleepTime, na.rm= TRUE)
+
+# faccio le medie di quando mi sono addormentato e quando mi sono svegliato
+
+bestHstart = mean(bestSleep$hStart, na.rm= TRUE)
+bestMstart = mean(bestSleep$mStart, na.rm= TRUE)
+bestHstop = mean(bestSleep$hStop, na.rm= TRUE)
+bestMstop = mean(bestSleep$mStop, na.rm= TRUE)
+bestHtotSleep = mean(bestSleep$htotSleep, na.rm= TRUE)
+
+# print di quello che ho trovato
+
+bestDeepSleep 
+bestWakeTime
+bestShallowSleepTime
+bestHstart
+bestHstop 
+bestHtotSleep 
+
+```
+
+In generale quindi per riposare al meglio dovrei:
+
+-   *cercare di andare a dormire abbastanza presto (ad esempio verso le 21:30);*
+
+-   *dormire tra le 8 e le 9 ore;*
+
+-   *ridurre al minimo il tempo sveglio (dovrei quindi ridurre al minimo le possibili cause di risveglio);*
+
+-   *fare attività fisica durante il giorno ma evitarla a ridosso del sonno;*
+
+-   *cercare di leggere o fare altre attività rilassanti prima di coricarmi;*
+
+-   *evitare attività frenetiche o l'assunzione di alcol nelle ore serali.*
+
+## Gli smartwatch sono dei semplici orologi?
+
+Dopo aver fatto un'analisi completa sui miei dati raccolti dallo smartwatch riguardo una specifica area di utilizzo proviamo a rispondere alla domanda iniziale:
+
+> *Gli smartwatch hanno davvero un'utilità o sono dei semplici gadget da tenere al polso?*
+
+Questi strumenti, secondo me, **non sono dei semplici orologi** o dei semplici oggetti da tenere al polso: sono molto di più . **Essi offrono una serie di vantaggi per il nostro benessere quotidian**o.
+
+In primo luogo, **permettono di raccogliere una serie di dati su molte attività che altrimenti non verrebbero tracciate** (come il sonno o l'attività fisica). Questo permette all'utente di concentrarsi su ciò che sta facendo e di visionare successivamente le informazioni raccolte.
+
+In secondo luogo, **permettono di analizzare i dati ottenuti**: come ho fatto io con questo progetto è **possibile ottenere dell' informazione utile** (come quante ore dormire o cosa è meglio fare prima di coricarsi) **da utilizzare nel quotidiano per migliorare ulteriormente il nostro benessere**.
